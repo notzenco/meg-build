@@ -106,7 +106,7 @@ jobs:
             https://github.com/yonaskolb/XcodeGen/releases/download/2.45.4/xcodegen.zip
           echo "090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef  $RUNNER_TEMP/xcodegen.zip" \
             | shasum -a 256 --check
-          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP/xcodegen"
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
           sudo "$RUNNER_TEMP/xcodegen/install.sh"
 
       - name: Install and validate signing assets
