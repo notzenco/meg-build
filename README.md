@@ -26,14 +26,15 @@ It requires these repository secrets:
 - `MEG_SOURCE_DEPLOY_KEY`
 - `APPLE_CERTIFICATE_P12`
 - `APPLE_CERTIFICATE_PASSWORD`
+- `IOS_PROVISIONING_PROFILE`
+- `IOS_WIDGET_PROVISIONING_PROFILE`
 - `APP_STORE_CONNECT_API_KEY`
 - `APP_STORE_CONNECT_API_KEY_ID`
 - `APP_STORE_CONNECT_ISSUER_ID`
 
-The workflow uses the App Store Connect API to enable the app's iCloud
-capability and prepare fresh App Store distribution profiles for both the app
-and widget at runtime. It validates both embedded profiles after archiving;
-provisioning profiles do not need to be stored as repository secrets.
+The two provisioning profile secrets must contain unexpired App Store
+distribution profiles for the app and widget. The workflow validates their
+application identifiers and both embedded profiles after archiving.
 
 The workflow deliberately does not publish archives, IPAs, source, or raw build
 logs as artifacts. Compiler and archive diagnostics are suppressed because this

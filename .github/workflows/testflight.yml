@@ -30,6 +30,8 @@ jobs:
           SOURCE_REF: ${{ inputs.source_ref }}
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+          IOS_WIDGET_PROVISIONING_PROFILE: ${{ secrets.IOS_WIDGET_PROVISIONING_PROFILE }}
           APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
@@ -43,6 +45,7 @@ jobs:
           required=(
             APPLE_TEAM_ID IOS_BUNDLE_ID IOS_WIDGET_BUNDLE_ID
             APPLE_CERTIFICATE_P12 APPLE_CERTIFICATE_PASSWORD
+            IOS_PROVISIONING_PROFILE IOS_WIDGET_PROVISIONING_PROFILE
             APP_STORE_CONNECT_API_KEY APP_STORE_CONNECT_API_KEY_ID
             APP_STORE_CONNECT_ISSUER_ID
           )
@@ -52,13 +55,6 @@ jobs:
               exit 1
             fi
           done
-
-      - name: Check out public orchestration
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          persist-credentials: false
-          path: orchestration
-          show-progress: false
 
       - name: Check out exact private source revision
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -120,9 +116,8 @@ jobs:
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
-          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
-          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+          IOS_WIDGET_PROVISIONING_PROFILE: ${{ secrets.IOS_WIDGET_PROVISIONING_PROFILE }}
         shell: bash
         run: |
           set -euo pipefail
@@ -136,7 +131,8 @@ jobs:
           profiles_path="$HOME/Library/MobileDevice/Provisioning Profiles"
 
           printf '%s' "$APPLE_CERTIFICATE_P12" | base64 -D > "$certificate_path"
-          OUTPUT_DIR="$RUNNER_TEMP" node orchestration/scripts/prepare-signing-assets.mjs
+          printf '%s' "$IOS_PROVISIONING_PROFILE" | base64 -D > "$profile_path"
+          printf '%s' "$IOS_WIDGET_PROVISIONING_PROFILE" | base64 -D > "$widget_profile_path"
           security cms -D -i "$profile_path" > "$profile_plist"
           security cms -D -i "$widget_profile_path" > "$widget_profile_plist"
 
