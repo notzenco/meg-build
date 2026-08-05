@@ -176,6 +176,7 @@ jobs:
             -archivePath "$RUNNER_TEMP/Meg.xcarchive" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             PROVISIONING_PROFILE_SPECIFIER="$IOS_PROFILE_NAME" \
             clean archive >"$archive_log" 2>&1; then
