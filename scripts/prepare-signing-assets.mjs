@@ -47,7 +47,7 @@ async function request(path, options = {}) {
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     const detail = body.errors?.[0]?.title ?? `HTTP ${response.status}`;
-    throw new Error(`Apple API request failed: ${detail}`);
+    throw new Error(`Apple API request failed for ${path}: ${detail}`);
   }
   return response.status === 204 ? null : response.json();
 }
@@ -61,9 +61,7 @@ async function bundleId(identifier) {
 }
 
 async function ensureICloud(bundleIdResourceId) {
-  const response = await request(
-    `/v1/bundleIds/${bundleIdResourceId}/bundleIdCapabilities?limit=200`,
-  );
+  const response = await request(`/v1/bundleIds/${bundleIdResourceId}/bundleIdCapabilities`);
   if (response.data?.some((item) => item.attributes?.capabilityType === "ICLOUD")) return;
 
   await request("/v1/bundleIdCapabilities", {
