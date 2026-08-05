@@ -61,7 +61,7 @@ jobs:
             https://github.com/yonaskolb/XcodeGen/releases/download/2.45.4/xcodegen.zip
           echo "090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef  /tmp/xcodegen.zip" \
             | shasum -a 256 --check
-          unzip -q /tmp/xcodegen.zip -d /tmp/xcodegen
+          unzip -q /tmp/xcodegen.zip -d /tmp
           sudo /tmp/xcodegen/install.sh
           xcodegen --version
 
@@ -81,4 +81,3 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/MegDerivedData" \
             CODE_SIGNING_ALLOWED=NO \
             clean build
-
