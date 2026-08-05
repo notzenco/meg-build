@@ -39,12 +39,12 @@ jobs:
         run: |
           set -euo pipefail
           requested="$SOURCE_REF"
-          if [[ ! "$requested" =~ ^[0-9a-fA-F]{40}$ ]]; then
-            echo "::error::source_ref must be a full 40-character commit SHA."
+          if [[ ! "$requested" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::source_ref must be a full lowercase 40-character commit SHA."
             exit 1
           fi
           resolved="$(git rev-parse HEAD)"
-          if [[ "$resolved" != "${requested,,}" ]]; then
+          if [[ "$resolved" != "$requested" ]]; then
             echo "::error::Requested source ref did not resolve to the expected commit."
             exit 1
           fi
