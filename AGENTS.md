@@ -9,7 +9,8 @@
 ## Architecture
 
 - `.github/workflows/build.yml` checks out the private source with a read-only
-  deploy key and builds it on a public macOS runner.
+  deploy key and builds its iPhone, Watch, and widget targets on a public macOS
+  runner.
 - `.github/workflows/testflight.yml` checks out an exact private commit, validates
   the App Store profile, archives it, and uploads it to App Store Connect.
 - This repository never owns application source, signing assets, or personal
@@ -26,6 +27,7 @@
 ## Definition of done
 
 - Manual dispatch builds the requested private source revision.
-- TestFlight dispatch validates the signed bundle and receives upload acceptance.
+- TestFlight dispatch validates the signed iPhone app, Watch companion, and
+  both widget extensions before receiving upload acceptance.
 - The deploy key can read only `notzenco/meg` and cannot write to it.
 - No private source or build artifact is uploaded from the ephemeral runner.

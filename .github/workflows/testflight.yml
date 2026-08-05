@@ -23,6 +23,9 @@ jobs:
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
       IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
       IOS_WIDGET_BUNDLE_ID: ${{ vars.IOS_WIDGET_BUNDLE_ID }}
+      WATCH_BUNDLE_ID: ${{ vars.WATCH_BUNDLE_ID }}
+      WATCH_WIDGET_BUNDLE_ID: ${{ vars.WATCH_WIDGET_BUNDLE_ID }}
+      APP_GROUP_ID: ${{ vars.APP_GROUP_ID }}
 
     steps:
       - name: Validate release configuration
@@ -32,6 +35,8 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
           IOS_WIDGET_PROVISIONING_PROFILE: ${{ secrets.IOS_WIDGET_PROVISIONING_PROFILE }}
+          WATCH_PROVISIONING_PROFILE: ${{ secrets.WATCH_PROVISIONING_PROFILE }}
+          WATCH_WIDGET_PROVISIONING_PROFILE: ${{ secrets.WATCH_WIDGET_PROVISIONING_PROFILE }}
           APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
@@ -44,8 +49,10 @@ jobs:
           fi
           required=(
             APPLE_TEAM_ID IOS_BUNDLE_ID IOS_WIDGET_BUNDLE_ID
+            WATCH_BUNDLE_ID WATCH_WIDGET_BUNDLE_ID APP_GROUP_ID
             APPLE_CERTIFICATE_P12 APPLE_CERTIFICATE_PASSWORD
             IOS_PROVISIONING_PROFILE IOS_WIDGET_PROVISIONING_PROFILE
+            WATCH_PROVISIONING_PROFILE WATCH_WIDGET_PROVISIONING_PROFILE
             APP_STORE_CONNECT_API_KEY APP_STORE_CONNECT_API_KEY_ID
             APP_STORE_CONNECT_ISSUER_ID
           )
@@ -118,14 +125,20 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
           IOS_WIDGET_PROVISIONING_PROFILE: ${{ secrets.IOS_WIDGET_PROVISIONING_PROFILE }}
+          WATCH_PROVISIONING_PROFILE: ${{ secrets.WATCH_PROVISIONING_PROFILE }}
+          WATCH_WIDGET_PROVISIONING_PROFILE: ${{ secrets.WATCH_WIDGET_PROVISIONING_PROFILE }}
         shell: bash
         run: |
           set -euo pipefail
           certificate_path="$RUNNER_TEMP/apple-distribution.p12"
           profile_path="$RUNNER_TEMP/meg.mobileprovision"
           widget_profile_path="$RUNNER_TEMP/meg-widget.mobileprovision"
+          watch_profile_path="$RUNNER_TEMP/meg-watch.mobileprovision"
+          watch_widget_profile_path="$RUNNER_TEMP/meg-watch-widget.mobileprovision"
           profile_plist="$RUNNER_TEMP/meg-profile.plist"
           widget_profile_plist="$RUNNER_TEMP/meg-widget-profile.plist"
+          watch_profile_plist="$RUNNER_TEMP/meg-watch-profile.plist"
+          watch_widget_profile_plist="$RUNNER_TEMP/meg-watch-widget-profile.plist"
           keychain_path="$RUNNER_TEMP/meg-signing.keychain-db"
           keychain_password="$(uuidgen)"
           profiles_path="$HOME/Library/MobileDevice/Provisioning Profiles"
@@ -133,32 +146,68 @@ jobs:
           printf '%s' "$APPLE_CERTIFICATE_P12" | base64 -D > "$certificate_path"
           printf '%s' "$IOS_PROVISIONING_PROFILE" | base64 -D > "$profile_path"
           printf '%s' "$IOS_WIDGET_PROVISIONING_PROFILE" | base64 -D > "$widget_profile_path"
+          printf '%s' "$WATCH_PROVISIONING_PROFILE" | base64 -D > "$watch_profile_path"
+          printf '%s' "$WATCH_WIDGET_PROVISIONING_PROFILE" | base64 -D > "$watch_widget_profile_path"
           security cms -D -i "$profile_path" > "$profile_plist"
           security cms -D -i "$widget_profile_path" > "$widget_profile_plist"
+          security cms -D -i "$watch_profile_path" > "$watch_profile_plist"
+          security cms -D -i "$watch_widget_profile_path" > "$watch_widget_profile_plist"
+          ! /usr/libexec/PlistBuddy -c 'Print :ProvisionedDevices' "$profile_plist" >/dev/null 2>&1
+          ! /usr/libexec/PlistBuddy -c 'Print :ProvisionedDevices' "$widget_profile_plist" >/dev/null 2>&1
+          ! /usr/libexec/PlistBuddy -c 'Print :ProvisionedDevices' "$watch_profile_plist" >/dev/null 2>&1
+          ! /usr/libexec/PlistBuddy -c 'Print :ProvisionedDevices' "$watch_widget_profile_plist" >/dev/null 2>&1
 
           profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$profile_plist")"
           profile_name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$profile_plist")"
           application_identifier="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$profile_plist")"
           get_task_allow="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow' "$profile_plist")"
           expiration_date="$(/usr/libexec/PlistBuddy -c 'Print :ExpirationDate' "$profile_plist")"
+          app_group="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups:0' "$profile_plist")"
           widget_profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$widget_profile_plist")"
           widget_profile_name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$widget_profile_plist")"
           widget_application_identifier="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$widget_profile_plist")"
           widget_get_task_allow="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow' "$widget_profile_plist")"
           widget_expiration_date="$(/usr/libexec/PlistBuddy -c 'Print :ExpirationDate' "$widget_profile_plist")"
+          widget_app_group="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups:0' "$widget_profile_plist")"
+          watch_profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$watch_profile_plist")"
+          watch_profile_name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$watch_profile_plist")"
+          watch_application_identifier="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$watch_profile_plist")"
+          watch_get_task_allow="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow' "$watch_profile_plist")"
+          watch_expiration_date="$(/usr/libexec/PlistBuddy -c 'Print :ExpirationDate' "$watch_profile_plist")"
+          watch_app_group="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups:0' "$watch_profile_plist")"
+          watch_widget_profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$watch_widget_profile_plist")"
+          watch_widget_profile_name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$watch_widget_profile_plist")"
+          watch_widget_application_identifier="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$watch_widget_profile_plist")"
+          watch_widget_get_task_allow="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow' "$watch_widget_profile_plist")"
+          watch_widget_expiration_date="$(/usr/libexec/PlistBuddy -c 'Print :ExpirationDate' "$watch_widget_profile_plist")"
+          watch_widget_app_group="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups:0' "$watch_widget_profile_plist")"
 
           test "$application_identifier" = "$APPLE_TEAM_ID.$IOS_BUNDLE_ID"
           test "$get_task_allow" = "false"
+          test "$app_group" = "$APP_GROUP_ID"
           test "$(date -j -f '%a %b %d %T %Z %Y' "$expiration_date" '+%s')" -gt "$(date '+%s')"
           test "$widget_application_identifier" = "$APPLE_TEAM_ID.$IOS_WIDGET_BUNDLE_ID"
           test "$widget_get_task_allow" = "false"
+          test "$widget_app_group" = "$APP_GROUP_ID"
           test "$(date -j -f '%a %b %d %T %Z %Y' "$widget_expiration_date" '+%s')" -gt "$(date '+%s')"
+          test "$watch_application_identifier" = "$APPLE_TEAM_ID.$WATCH_BUNDLE_ID"
+          test "$watch_get_task_allow" = "false"
+          test "$watch_app_group" = "$APP_GROUP_ID"
+          test "$(date -j -f '%a %b %d %T %Z %Y' "$watch_expiration_date" '+%s')" -gt "$(date '+%s')"
+          test "$watch_widget_application_identifier" = "$APPLE_TEAM_ID.$WATCH_WIDGET_BUNDLE_ID"
+          test "$watch_widget_get_task_allow" = "false"
+          test "$watch_widget_app_group" = "$APP_GROUP_ID"
+          test "$(date -j -f '%a %b %d %T %Z %Y' "$watch_widget_expiration_date" '+%s')" -gt "$(date '+%s')"
 
           mkdir -p "$profiles_path"
           cp "$profile_path" "$profiles_path/$profile_uuid.mobileprovision"
           cp "$widget_profile_path" "$profiles_path/$widget_profile_uuid.mobileprovision"
+          cp "$watch_profile_path" "$profiles_path/$watch_profile_uuid.mobileprovision"
+          cp "$watch_widget_profile_path" "$profiles_path/$watch_widget_profile_uuid.mobileprovision"
           echo "IOS_PROFILE_NAME=$profile_name" >> "$GITHUB_ENV"
           echo "IOS_WIDGET_PROFILE_NAME=$widget_profile_name" >> "$GITHUB_ENV"
+          echo "WATCH_PROFILE_NAME=$watch_profile_name" >> "$GITHUB_ENV"
+          echo "WATCH_WIDGET_PROFILE_NAME=$watch_widget_profile_name" >> "$GITHUB_ENV"
 
           security create-keychain -p "$keychain_password" "$keychain_path"
           security set-keychain-settings -lut 21600 "$keychain_path"
@@ -216,6 +265,7 @@ jobs:
           embedded_plist="$RUNNER_TEMP/embedded-profile.plist"
           security cms -D -i "$app/embedded.mobileprovision" > "$embedded_plist"
           test "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$embedded_plist")" = "$APPLE_TEAM_ID.$IOS_BUNDLE_ID"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups:0' "$embedded_plist")" = "$APP_GROUP_ID"
           widget="$(find "$app/PlugIns" -maxdepth 1 -type d -name '*.appex' -print -quit)"
           test -n "$widget"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$widget/Info.plist")" = "$IOS_WIDGET_BUNDLE_ID"
@@ -223,6 +273,25 @@ jobs:
           widget_embedded_plist="$RUNNER_TEMP/widget-embedded-profile.plist"
           security cms -D -i "$widget/embedded.mobileprovision" > "$widget_embedded_plist"
           test "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$widget_embedded_plist")" = "$APPLE_TEAM_ID.$IOS_WIDGET_BUNDLE_ID"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups:0' "$widget_embedded_plist")" = "$APP_GROUP_ID"
+          watch_app="$app/Watch/MegWatch.app"
+          test -d "$watch_app"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$watch_app/Info.plist")" = "$WATCH_BUNDLE_ID"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$watch_app/Info.plist")" = "$BUILD_NUMBER"
+          codesign --verify --deep --strict "$watch_app"
+          watch_embedded_plist="$RUNNER_TEMP/watch-embedded-profile.plist"
+          security cms -D -i "$watch_app/embedded.mobileprovision" > "$watch_embedded_plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$watch_embedded_plist")" = "$APPLE_TEAM_ID.$WATCH_BUNDLE_ID"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups:0' "$watch_embedded_plist")" = "$APP_GROUP_ID"
+          watch_widget="$(find "$watch_app/PlugIns" -maxdepth 1 -type d -name '*.appex' -print -quit)"
+          test -n "$watch_widget"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$watch_widget/Info.plist")" = "$WATCH_WIDGET_BUNDLE_ID"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$watch_widget/Info.plist")" = "$BUILD_NUMBER"
+          codesign --verify --strict "$watch_widget"
+          watch_widget_embedded_plist="$RUNNER_TEMP/watch-widget-embedded-profile.plist"
+          security cms -D -i "$watch_widget/embedded.mobileprovision" > "$watch_widget_embedded_plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$watch_widget_embedded_plist")" = "$APPLE_TEAM_ID.$WATCH_WIDGET_BUNDLE_ID"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups:0' "$watch_widget_embedded_plist")" = "$APP_GROUP_ID"
           echo "Signed archive identity verified."
 
       - name: Export signed IPA
@@ -242,6 +311,8 @@ jobs:
             <dict>
               <key>${IOS_BUNDLE_ID}</key><string>${IOS_PROFILE_NAME}</string>
               <key>${IOS_WIDGET_BUNDLE_ID}</key><string>${IOS_WIDGET_PROFILE_NAME}</string>
+              <key>${WATCH_BUNDLE_ID}</key><string>${WATCH_PROFILE_NAME}</string>
+              <key>${WATCH_WIDGET_BUNDLE_ID}</key><string>${WATCH_WIDGET_PROFILE_NAME}</string>
             </dict>
             <key>signingStyle</key><string>manual</string>
             <key>stripSwiftSymbols</key><true/>

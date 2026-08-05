@@ -75,7 +75,7 @@ jobs:
         working-directory: source
         run: xcodegen generate
 
-      - name: Build iPhone app
+      - name: Build iPhone, Watch, and widgets
         id: build
         continue-on-error: true
         working-directory: source
@@ -83,17 +83,41 @@ jobs:
         run: |
           set -euo pipefail
           build_log="$RUNNER_TEMP/meg-build.log"
-          if ! xcodebuild \
+          : > "$build_log"
+          failed=0
+          xcodebuild \
             -project Meg.xcodeproj \
             -scheme Meg \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath "$RUNNER_TEMP/MegDerivedData" \
             CODE_SIGNING_ALLOWED=NO \
-            clean build >"$build_log" 2>&1; then
+            clean build >>"$build_log" 2>&1 || failed=1
+          xcodebuild \
+            -project Meg.xcodeproj \
+            -scheme MegWidgets \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/MegWidgetDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            clean build >>"$build_log" 2>&1 || failed=1
+          xcodebuild \
+            -project Meg.xcodeproj \
+            -scheme MegWatch \
+            -destination 'generic/platform=watchOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/MegWatchDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            clean build >>"$build_log" 2>&1 || failed=1
+          xcodebuild \
+            -project Meg.xcodeproj \
+            -scheme MegWatchWidgets \
+            -destination 'generic/platform=watchOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/MegWatchWidgetDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            clean build >>"$build_log" 2>&1 || failed=1
+          if [[ "$failed" != 0 ]]; then
             echo "::error::The private source build failed. Diagnostics are intentionally suppressed in this public repository."
             exit 1
           fi
-          echo "Private source build succeeded."
+          echo "Private iPhone, Watch, and widget builds succeeded."
 
       - name: Encrypt private build diagnostics
         if: steps.build.outcome == 'failure'
