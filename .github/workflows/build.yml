@@ -1,0 +1,84 @@
+name: Build private Meg source
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Exact notzenco/meg commit SHA to build
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meg-private-source-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: xcode-27
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out private source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: notzenco/meg
+          ref: ${{ inputs.source_ref }}
+          ssh-key: ${{ secrets.MEG_SOURCE_DEPLOY_KEY }}
+          persist-credentials: false
+          path: source
+          show-progress: false
+
+      - name: Validate source revision
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          requested="${{ inputs.source_ref }}"
+          resolved="$(git rev-parse HEAD)"
+          if [[ ! "$resolved" == "$requested"* ]]; then
+            echo "::error::Requested source ref did not resolve to the expected commit."
+            exit 1
+          fi
+          echo "Building private source commit $resolved"
+          test -f project.yml
+          test -f Meg/MegApp.swift
+
+      - name: Verify Xcode image
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+
+      - name: Install XcodeGen 2.45.4
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error \
+            --output /tmp/xcodegen.zip \
+            https://github.com/yonaskolb/XcodeGen/releases/download/2.45.4/xcodegen.zip
+          echo "090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef  /tmp/xcodegen.zip" \
+            | shasum -a 256 --check
+          unzip -q /tmp/xcodegen.zip -d /tmp/xcodegen
+          sudo /tmp/xcodegen/install.sh
+          xcodegen --version
+
+      - name: Generate Xcode project
+        working-directory: source
+        run: xcodegen generate
+
+      - name: Build iPhone app
+        working-directory: source
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Meg.xcodeproj \
+            -scheme Meg \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/MegDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            clean build
+
