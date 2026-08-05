@@ -22,6 +22,7 @@ jobs:
     env:
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
       IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
+      IOS_WIDGET_BUNDLE_ID: ${{ vars.IOS_WIDGET_BUNDLE_ID }}
 
     steps:
       - name: Validate release configuration
@@ -29,7 +30,6 @@ jobs:
           SOURCE_REF: ${{ inputs.source_ref }}
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
           APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
@@ -41,8 +41,8 @@ jobs:
             exit 1
           fi
           required=(
-            APPLE_TEAM_ID IOS_BUNDLE_ID APPLE_CERTIFICATE_P12
-            APPLE_CERTIFICATE_PASSWORD IOS_PROVISIONING_PROFILE
+            APPLE_TEAM_ID IOS_BUNDLE_ID IOS_WIDGET_BUNDLE_ID
+            APPLE_CERTIFICATE_P12 APPLE_CERTIFICATE_PASSWORD
             APP_STORE_CONNECT_API_KEY APP_STORE_CONNECT_API_KEY_ID
             APP_STORE_CONNECT_ISSUER_ID
           )
@@ -52,6 +52,13 @@ jobs:
               exit 1
             fi
           done
+
+      - name: Check out public orchestration
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          path: orchestration
+          show-progress: false
 
       - name: Check out exact private source revision
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -113,34 +120,49 @@ jobs:
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
         shell: bash
         run: |
           set -euo pipefail
           certificate_path="$RUNNER_TEMP/apple-distribution.p12"
           profile_path="$RUNNER_TEMP/meg.mobileprovision"
+          widget_profile_path="$RUNNER_TEMP/meg-widget.mobileprovision"
           profile_plist="$RUNNER_TEMP/meg-profile.plist"
+          widget_profile_plist="$RUNNER_TEMP/meg-widget-profile.plist"
           keychain_path="$RUNNER_TEMP/meg-signing.keychain-db"
           keychain_password="$(uuidgen)"
           profiles_path="$HOME/Library/MobileDevice/Provisioning Profiles"
 
           printf '%s' "$APPLE_CERTIFICATE_P12" | base64 -D > "$certificate_path"
-          printf '%s' "$IOS_PROVISIONING_PROFILE" | base64 -D > "$profile_path"
+          OUTPUT_DIR="$RUNNER_TEMP" node orchestration/scripts/prepare-signing-assets.mjs
           security cms -D -i "$profile_path" > "$profile_plist"
+          security cms -D -i "$widget_profile_path" > "$widget_profile_plist"
 
           profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$profile_plist")"
           profile_name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$profile_plist")"
           application_identifier="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$profile_plist")"
           get_task_allow="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow' "$profile_plist")"
           expiration_date="$(/usr/libexec/PlistBuddy -c 'Print :ExpirationDate' "$profile_plist")"
+          widget_profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$widget_profile_plist")"
+          widget_profile_name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$widget_profile_plist")"
+          widget_application_identifier="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$widget_profile_plist")"
+          widget_get_task_allow="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow' "$widget_profile_plist")"
+          widget_expiration_date="$(/usr/libexec/PlistBuddy -c 'Print :ExpirationDate' "$widget_profile_plist")"
 
           test "$application_identifier" = "$APPLE_TEAM_ID.$IOS_BUNDLE_ID"
           test "$get_task_allow" = "false"
           test "$(date -j -f '%a %b %d %T %Z %Y' "$expiration_date" '+%s')" -gt "$(date '+%s')"
+          test "$widget_application_identifier" = "$APPLE_TEAM_ID.$IOS_WIDGET_BUNDLE_ID"
+          test "$widget_get_task_allow" = "false"
+          test "$(date -j -f '%a %b %d %T %Z %Y' "$widget_expiration_date" '+%s')" -gt "$(date '+%s')"
 
           mkdir -p "$profiles_path"
           cp "$profile_path" "$profiles_path/$profile_uuid.mobileprovision"
+          cp "$widget_profile_path" "$profiles_path/$widget_profile_uuid.mobileprovision"
           echo "IOS_PROFILE_NAME=$profile_name" >> "$GITHUB_ENV"
+          echo "IOS_WIDGET_PROFILE_NAME=$widget_profile_name" >> "$GITHUB_ENV"
 
           security create-keychain -p "$keychain_password" "$keychain_path"
           security set-keychain-settings -lut 21600 "$keychain_path"
@@ -178,7 +200,6 @@ jobs:
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            PROVISIONING_PROFILE_SPECIFIER="$IOS_PROFILE_NAME" \
             clean archive >"$archive_log" 2>&1; then
             echo "::error::The private source archive failed. Diagnostics are intentionally suppressed in this public repository."
             exit 1
@@ -199,6 +220,13 @@ jobs:
           embedded_plist="$RUNNER_TEMP/embedded-profile.plist"
           security cms -D -i "$app/embedded.mobileprovision" > "$embedded_plist"
           test "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$embedded_plist")" = "$APPLE_TEAM_ID.$IOS_BUNDLE_ID"
+          widget="$(find "$app/PlugIns" -maxdepth 1 -type d -name '*.appex' -print -quit)"
+          test -n "$widget"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$widget/Info.plist")" = "$IOS_WIDGET_BUNDLE_ID"
+          codesign --verify --strict "$widget"
+          widget_embedded_plist="$RUNNER_TEMP/widget-embedded-profile.plist"
+          security cms -D -i "$widget/embedded.mobileprovision" > "$widget_embedded_plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$widget_embedded_plist")" = "$APPLE_TEAM_ID.$IOS_WIDGET_BUNDLE_ID"
           echo "Signed archive identity verified."
 
       - name: Export signed IPA
@@ -217,6 +245,7 @@ jobs:
             <key>provisioningProfiles</key>
             <dict>
               <key>${IOS_BUNDLE_ID}</key><string>${IOS_PROFILE_NAME}</string>
+              <key>${IOS_WIDGET_BUNDLE_ID}</key><string>${IOS_WIDGET_PROFILE_NAME}</string>
             </dict>
             <key>signingStyle</key><string>manual</string>
             <key>stripSwiftSymbols</key><true/>

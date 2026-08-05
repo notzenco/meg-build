@@ -19,21 +19,21 @@ The deployment workflow requires these repository variables:
 
 - `APPLE_TEAM_ID`
 - `IOS_BUNDLE_ID`
+- `IOS_WIDGET_BUNDLE_ID`
 
 It requires these repository secrets:
 
 - `MEG_SOURCE_DEPLOY_KEY`
 - `APPLE_CERTIFICATE_P12`
 - `APPLE_CERTIFICATE_PASSWORD`
-- `IOS_PROVISIONING_PROFILE`
 - `APP_STORE_CONNECT_API_KEY`
 - `APP_STORE_CONNECT_API_KEY_ID`
 - `APP_STORE_CONNECT_ISSUER_ID`
 
-The provisioning profile must be an unexpired App Store distribution profile
-whose application identifier exactly matches the configured team and bundle
-identifier. The workflow derives the profile name from the signed profile and
-validates the embedded profile after archiving.
+The workflow uses the App Store Connect API to enable the app's iCloud
+capability and prepare fresh App Store distribution profiles for both the app
+and widget at runtime. It validates both embedded profiles after archiving;
+provisioning profiles do not need to be stored as repository secrets.
 
 The workflow deliberately does not publish archives, IPAs, source, or raw build
 logs as artifacts. Compiler and archive diagnostics are suppressed because this
