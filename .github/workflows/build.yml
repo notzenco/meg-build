@@ -34,15 +34,21 @@ jobs:
       - name: Validate source revision
         working-directory: source
         shell: bash
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
         run: |
           set -euo pipefail
-          requested="${{ inputs.source_ref }}"
+          requested="$SOURCE_REF"
+          if [[ ! "$requested" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::source_ref must be a full 40-character commit SHA."
+            exit 1
+          fi
           resolved="$(git rev-parse HEAD)"
-          if [[ ! "$resolved" == "$requested"* ]]; then
+          if [[ "$resolved" != "${requested,,}" ]]; then
             echo "::error::Requested source ref did not resolve to the expected commit."
             exit 1
           fi
-          echo "Building private source commit $resolved"
+          echo "Validated the requested private source revision."
           test -f project.yml
           test -f Meg/MegApp.swift
 
@@ -73,11 +79,16 @@ jobs:
         working-directory: source
         shell: bash
         run: |
-          set -o pipefail
-          xcodebuild \
+          set -euo pipefail
+          build_log="$RUNNER_TEMP/meg-build.log"
+          if ! xcodebuild \
             -project Meg.xcodeproj \
             -scheme Meg \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath "$RUNNER_TEMP/MegDerivedData" \
             CODE_SIGNING_ALLOWED=NO \
-            clean build
+            clean build >"$build_log" 2>&1; then
+            echo "::error::The private source build failed. Diagnostics are intentionally suppressed in this public repository."
+            exit 1
+          fi
+          echo "Private source build succeeded."

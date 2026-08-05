@@ -1,0 +1,267 @@
+name: Deploy private Meg source to TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Exact notzenco/meg commit SHA to deploy
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meg-private-source-testflight
+  cancel-in-progress: false
+
+jobs:
+  archive-and-upload:
+    runs-on: xcode-27
+    timeout-minutes: 45
+    env:
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
+
+    steps:
+      - name: Validate release configuration
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$SOURCE_REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::source_ref must be a full 40-character commit SHA."
+            exit 1
+          fi
+          required=(
+            APPLE_TEAM_ID IOS_BUNDLE_ID APPLE_CERTIFICATE_P12
+            APPLE_CERTIFICATE_PASSWORD IOS_PROVISIONING_PROFILE
+            APP_STORE_CONNECT_API_KEY APP_STORE_CONNECT_API_KEY_ID
+            APP_STORE_CONNECT_ISSUER_ID
+          )
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing release configuration: $name"
+              exit 1
+            fi
+          done
+
+      - name: Check out exact private source revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: notzenco/meg
+          ref: ${{ inputs.source_ref }}
+          ssh-key: ${{ secrets.MEG_SOURCE_DEPLOY_KEY }}
+          persist-credentials: false
+          path: source
+          show-progress: false
+
+      - name: Verify private source revision
+        working-directory: source
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          resolved="$(git rev-parse HEAD)"
+          if [[ "$resolved" != "${SOURCE_REF,,}" ]]; then
+            echo "::error::Private checkout did not resolve to the requested commit."
+            exit 1
+          fi
+          test -f project.yml
+          test -f Meg/MegApp.swift
+          echo "Validated the requested private source revision."
+
+      - name: Validate supported Xcode
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          developer_dir="$(xcode-select -p)"
+          case "$developer_dir" in
+            *Xcode_27_beta_1.app/*|*Xcode_27_beta_2.app/*|*Xcode_27_beta_3.app/*)
+              echo "::error::App Store Connect no longer accepts this Xcode image."
+              exit 1
+              ;;
+            *Xcode_27*) ;;
+            *)
+              echo "::error::Expected an Xcode 27 runner."
+              exit 1
+              ;;
+          esac
+
+      - name: Install XcodeGen 2.45.4
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error \
+            --output "$RUNNER_TEMP/xcodegen.zip" \
+            https://github.com/yonaskolb/XcodeGen/releases/download/2.45.4/xcodegen.zip
+          echo "090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef  $RUNNER_TEMP/xcodegen.zip" \
+            | shasum -a 256 --check
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP/xcodegen"
+          sudo "$RUNNER_TEMP/xcodegen/install.sh"
+
+      - name: Install and validate signing assets
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          certificate_path="$RUNNER_TEMP/apple-distribution.p12"
+          profile_path="$RUNNER_TEMP/meg.mobileprovision"
+          profile_plist="$RUNNER_TEMP/meg-profile.plist"
+          keychain_path="$RUNNER_TEMP/meg-signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          profiles_path="$HOME/Library/MobileDevice/Provisioning Profiles"
+
+          printf '%s' "$APPLE_CERTIFICATE_P12" | base64 -D > "$certificate_path"
+          printf '%s' "$IOS_PROVISIONING_PROFILE" | base64 -D > "$profile_path"
+          security cms -D -i "$profile_path" > "$profile_plist"
+
+          profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$profile_plist")"
+          profile_name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$profile_plist")"
+          application_identifier="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$profile_plist")"
+          get_task_allow="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow' "$profile_plist")"
+          expiration_date="$(/usr/libexec/PlistBuddy -c 'Print :ExpirationDate' "$profile_plist")"
+
+          test "$application_identifier" = "$APPLE_TEAM_ID.$IOS_BUNDLE_ID"
+          test "$get_task_allow" = "false"
+          test "$(date -j -f '%a %b %d %T %Z %Y' "$expiration_date" '+%s')" -gt "$(date '+%s')"
+
+          mkdir -p "$profiles_path"
+          cp "$profile_path" "$profiles_path/$profile_uuid.mobileprovision"
+          echo "IOS_PROFILE_NAME=$profile_name" >> "$GITHUB_ENV"
+
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$keychain_path"
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -k "$keychain_password" \
+            "$keychain_path" >/dev/null
+          security list-keychains -d user -s "$keychain_path"
+          security find-identity -v -p codesigning "$keychain_path" | grep -q '1 valid identities found'
+
+      - name: Generate Xcode project
+        working-directory: source
+        shell: bash
+        run: xcodegen generate >/dev/null
+
+      - name: Archive signed app
+        working-directory: source
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive_log="$RUNNER_TEMP/meg-archive.log"
+          if ! xcodebuild \
+            -project Meg.xcodeproj \
+            -scheme Meg \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Meg.xcarchive" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            PROVISIONING_PROFILE_SPECIFIER="$IOS_PROFILE_NAME" \
+            clean archive >"$archive_log" 2>&1; then
+            echo "::error::The private source archive failed. Diagnostics are intentionally suppressed in this public repository."
+            exit 1
+          fi
+          echo "Signed archive created."
+
+      - name: Verify signed archive
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/Meg.xcarchive/Products/Applications/Meg.app"
+          test -d "$app"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")" = "$IOS_BUNDLE_ID"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Info.plist")" = "$BUILD_NUMBER"
+          codesign --verify --deep --strict "$app"
+          embedded_plist="$RUNNER_TEMP/embedded-profile.plist"
+          security cms -D -i "$app/embedded.mobileprovision" > "$embedded_plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$embedded_plist")" = "$APPLE_TEAM_ID.$IOS_BUNDLE_ID"
+          echo "Signed archive identity verified."
+
+      - name: Export signed IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          export_options_path="$RUNNER_TEMP/ExportOptions.plist"
+          cat > "$export_options_path" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>destination</key><string>export</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+            <key>method</key><string>app-store-connect</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>${IOS_BUNDLE_ID}</key><string>${IOS_PROFILE_NAME}</string>
+            </dict>
+            <key>signingStyle</key><string>manual</string>
+            <key>stripSwiftSymbols</key><true/>
+            <key>teamID</key><string>${APPLE_TEAM_ID}</string>
+            <key>uploadSymbols</key><true/>
+          </dict>
+          </plist>
+          PLIST
+
+          export_log="$RUNNER_TEMP/meg-export.log"
+          if ! xcodebuild \
+            -exportArchive \
+            -archivePath "$RUNNER_TEMP/Meg.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist "$export_options_path" >"$export_log" 2>&1; then
+            echo "::error::IPA export failed. Diagnostics are intentionally suppressed in this public repository."
+            exit 1
+          fi
+
+      - name: Upload to App Store Connect
+        env:
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          private_keys_path="$HOME/.appstoreconnect/private_keys"
+          auth_key_path="$private_keys_path/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
+          ipa_path="$(find "$RUNNER_TEMP/export" -maxdepth 1 -type f -name '*.ipa' -print -quit)"
+          test -n "$ipa_path"
+          mkdir -p "$private_keys_path"
+          printf '%s' "$APP_STORE_CONNECT_API_KEY" > "$auth_key_path"
+          chmod 600 "$auth_key_path"
+          xcrun altool \
+            --upload-app \
+            --type ios \
+            --file "$ipa_path" \
+            --apiKey "$APP_STORE_CONNECT_API_KEY_ID" \
+            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
+
+      - name: Remove temporary credentials
+        if: always()
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+        shell: bash
+        run: |
+          security delete-keychain "$RUNNER_TEMP/meg-signing.keychain-db" >/dev/null 2>&1 || true
+          rm -f "$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
