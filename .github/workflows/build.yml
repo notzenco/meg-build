@@ -76,6 +76,8 @@ jobs:
         run: xcodegen generate
 
       - name: Build iPhone app
+        id: build
+        continue-on-error: true
         working-directory: source
         shell: bash
         run: |
@@ -92,3 +94,44 @@ jobs:
             exit 1
           fi
           echo "Private source build succeeded."
+
+      - name: Encrypt private build diagnostics
+        if: steps.build.outcome == 'failure'
+        env:
+          MEG_DIAGNOSTIC_PUBLIC_KEY: ${{ secrets.MEG_DIAGNOSTIC_PUBLIC_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$MEG_DIAGNOSTIC_PUBLIC_KEY"
+          printf '%s' "$MEG_DIAGNOSTIC_PUBLIC_KEY" > "$RUNNER_TEMP/diagnostic-public.pem"
+          openssl rand -hex 32 > "$RUNNER_TEMP/diagnostic-key.hex"
+          openssl enc -aes-256-cbc -salt -pbkdf2 \
+            -in "$RUNNER_TEMP/meg-build.log" \
+            -out "$RUNNER_TEMP/meg-build.log.enc" \
+            -pass file:"$RUNNER_TEMP/diagnostic-key.hex"
+          openssl pkeyutl -encrypt \
+            -pubin \
+            -inkey "$RUNNER_TEMP/diagnostic-public.pem" \
+            -in "$RUNNER_TEMP/diagnostic-key.hex" \
+            -out "$RUNNER_TEMP/diagnostic-key.enc" \
+            -pkeyopt rsa_padding_mode:oaep \
+            -pkeyopt rsa_oaep_md:sha256
+          rm -f "$RUNNER_TEMP/diagnostic-key.hex" "$RUNNER_TEMP/diagnostic-public.pem"
+
+      - name: Upload encrypted diagnostics
+        if: steps.build.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: encrypted-private-build-diagnostics
+          path: |
+            ${{ runner.temp }}/meg-build.log.enc
+            ${{ runner.temp }}/diagnostic-key.enc
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Report private build failure
+        if: steps.build.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "::error::The private source build failed. Encrypted diagnostics are available to the repository owner."
+          exit 1
