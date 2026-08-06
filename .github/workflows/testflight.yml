@@ -166,7 +166,7 @@ jobs:
           expiration_date="$(/usr/libexec/PlistBuddy -c 'Print :ExpirationDate' "$profile_plist")"
           app_group="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups:0' "$profile_plist")"
           icloud_container="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.icloud-container-identifiers:0' "$profile_plist")"
-          icloud_service="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.icloud-services:0' "$profile_plist")"
+          icloud_service="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.icloud-services' "$profile_plist")"
           kvstore_identifier="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.ubiquity-kvstore-identifier' "$profile_plist")"
           widget_profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$widget_profile_plist")"
           widget_profile_name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$widget_profile_plist")"
@@ -191,8 +191,8 @@ jobs:
           test "$get_task_allow" = "false"
           test "$app_group" = "$APP_GROUP_ID"
           test "$icloud_container" = "$ICLOUD_CONTAINER_ID"
-          test "$icloud_service" = "CloudKit"
-          test "$kvstore_identifier" = "$APPLE_TEAM_ID.$IOS_BUNDLE_ID"
+          [[ "$icloud_service" == "*" || "$icloud_service" == *CloudKit* ]]
+          [[ "$kvstore_identifier" == "$APPLE_TEAM_ID.*" || "$kvstore_identifier" == "$APPLE_TEAM_ID.$IOS_BUNDLE_ID" ]]
           test "$(date -j -f '%a %b %d %T %Z %Y' "$expiration_date" '+%s')" -gt "$(date '+%s')"
           test "$widget_application_identifier" = "$APPLE_TEAM_ID.$IOS_WIDGET_BUNDLE_ID"
           test "$widget_get_task_allow" = "false"
@@ -270,13 +270,20 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")" = "$IOS_BUNDLE_ID"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Info.plist")" = "$BUILD_NUMBER"
           codesign --verify --deep --strict "$app"
+          app_entitlements="$RUNNER_TEMP/app-entitlements.plist"
+          codesign -d --entitlements :- "$app" > "$app_entitlements" 2>/dev/null
+          test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.icloud-container-identifiers:0' "$app_entitlements")" = "$ICLOUD_CONTAINER_ID"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.icloud-services:0' "$app_entitlements")" = "CloudKit"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.ubiquity-kvstore-identifier' "$app_entitlements")" = "$APPLE_TEAM_ID.$IOS_BUNDLE_ID"
           embedded_plist="$RUNNER_TEMP/embedded-profile.plist"
           security cms -D -i "$app/embedded.mobileprovision" > "$embedded_plist"
           test "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$embedded_plist")" = "$APPLE_TEAM_ID.$IOS_BUNDLE_ID"
           test "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups:0' "$embedded_plist")" = "$APP_GROUP_ID"
           test "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.icloud-container-identifiers:0' "$embedded_plist")" = "$ICLOUD_CONTAINER_ID"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.icloud-services:0' "$embedded_plist")" = "CloudKit"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.ubiquity-kvstore-identifier' "$embedded_plist")" = "$APPLE_TEAM_ID.$IOS_BUNDLE_ID"
+          embedded_icloud_service="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.icloud-services' "$embedded_plist")"
+          embedded_kvstore="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.ubiquity-kvstore-identifier' "$embedded_plist")"
+          [[ "$embedded_icloud_service" == "*" || "$embedded_icloud_service" == *CloudKit* ]]
+          [[ "$embedded_kvstore" == "$APPLE_TEAM_ID.*" || "$embedded_kvstore" == "$APPLE_TEAM_ID.$IOS_BUNDLE_ID" ]]
           widget="$(find "$app/PlugIns" -maxdepth 1 -type d -name '*.appex' -print -quit)"
           test -n "$widget"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$widget/Info.plist")" = "$IOS_WIDGET_BUNDLE_ID"
