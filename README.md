@@ -20,6 +20,10 @@ The deployment workflow requires these repository variables:
 - `APPLE_TEAM_ID`
 - `IOS_BUNDLE_ID`
 - `IOS_WIDGET_BUNDLE_ID`
+- `WATCH_BUNDLE_ID`
+- `WATCH_WIDGET_BUNDLE_ID`
+- `APP_GROUP_ID`
+- `ICLOUD_CONTAINER_ID`
 
 It requires these repository secrets:
 
@@ -28,13 +32,21 @@ It requires these repository secrets:
 - `APPLE_CERTIFICATE_PASSWORD`
 - `IOS_PROVISIONING_PROFILE`
 - `IOS_WIDGET_PROVISIONING_PROFILE`
+- `WATCH_PROVISIONING_PROFILE`
+- `WATCH_WIDGET_PROVISIONING_PROFILE`
 - `APP_STORE_CONNECT_API_KEY`
 - `APP_STORE_CONNECT_API_KEY_ID`
 - `APP_STORE_CONNECT_ISSUER_ID`
 
-The two provisioning profile secrets must contain unexpired App Store
-distribution profiles for the app and widget. The workflow validates their
-application identifiers and both embedded profiles after archiving.
+The four provisioning profile secrets must contain unexpired App Store
+distribution profiles for the iPhone app, iPhone widgets, Watch app, and Watch
+widgets. The workflow validates every application identifier and App Group. The
+main profile must additionally contain CloudKit, `iCloud.pw.kian.meg`, and the
+Meg iCloud key-value identifier.
+
+The source repository documents CloudKit schema deployment and the two-phone
+sharing check in `docs/planner-and-sync.md`. This public repository never
+contains the schema's private records or encrypted payloads.
 
 The workflow deliberately does not publish archives, IPAs, source, or raw build
 logs as artifacts. Compiler and archive diagnostics are suppressed because this

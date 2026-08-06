@@ -26,6 +26,7 @@ jobs:
       WATCH_BUNDLE_ID: ${{ vars.WATCH_BUNDLE_ID }}
       WATCH_WIDGET_BUNDLE_ID: ${{ vars.WATCH_WIDGET_BUNDLE_ID }}
       APP_GROUP_ID: ${{ vars.APP_GROUP_ID }}
+      ICLOUD_CONTAINER_ID: ${{ vars.ICLOUD_CONTAINER_ID }}
 
     steps:
       - name: Validate release configuration
@@ -50,6 +51,7 @@ jobs:
           required=(
             APPLE_TEAM_ID IOS_BUNDLE_ID IOS_WIDGET_BUNDLE_ID
             WATCH_BUNDLE_ID WATCH_WIDGET_BUNDLE_ID APP_GROUP_ID
+            ICLOUD_CONTAINER_ID
             APPLE_CERTIFICATE_P12 APPLE_CERTIFICATE_PASSWORD
             IOS_PROVISIONING_PROFILE IOS_WIDGET_PROVISIONING_PROFILE
             WATCH_PROVISIONING_PROFILE WATCH_WIDGET_PROVISIONING_PROFILE
@@ -163,6 +165,9 @@ jobs:
           get_task_allow="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow' "$profile_plist")"
           expiration_date="$(/usr/libexec/PlistBuddy -c 'Print :ExpirationDate' "$profile_plist")"
           app_group="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups:0' "$profile_plist")"
+          icloud_container="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.icloud-container-identifiers:0' "$profile_plist")"
+          icloud_service="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.icloud-services:0' "$profile_plist")"
+          kvstore_identifier="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.ubiquity-kvstore-identifier' "$profile_plist")"
           widget_profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$widget_profile_plist")"
           widget_profile_name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$widget_profile_plist")"
           widget_application_identifier="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$widget_profile_plist")"
@@ -185,6 +190,9 @@ jobs:
           test "$application_identifier" = "$APPLE_TEAM_ID.$IOS_BUNDLE_ID"
           test "$get_task_allow" = "false"
           test "$app_group" = "$APP_GROUP_ID"
+          test "$icloud_container" = "$ICLOUD_CONTAINER_ID"
+          test "$icloud_service" = "CloudKit"
+          test "$kvstore_identifier" = "$APPLE_TEAM_ID.$IOS_BUNDLE_ID"
           test "$(date -j -f '%a %b %d %T %Z %Y' "$expiration_date" '+%s')" -gt "$(date '+%s')"
           test "$widget_application_identifier" = "$APPLE_TEAM_ID.$IOS_WIDGET_BUNDLE_ID"
           test "$widget_get_task_allow" = "false"
@@ -266,6 +274,9 @@ jobs:
           security cms -D -i "$app/embedded.mobileprovision" > "$embedded_plist"
           test "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$embedded_plist")" = "$APPLE_TEAM_ID.$IOS_BUNDLE_ID"
           test "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups:0' "$embedded_plist")" = "$APP_GROUP_ID"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.icloud-container-identifiers:0' "$embedded_plist")" = "$ICLOUD_CONTAINER_ID"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.icloud-services:0' "$embedded_plist")" = "CloudKit"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.ubiquity-kvstore-identifier' "$embedded_plist")" = "$APPLE_TEAM_ID.$IOS_BUNDLE_ID"
           widget="$(find "$app/PlugIns" -maxdepth 1 -type d -name '*.appex' -print -quit)"
           test -n "$widget"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$widget/Info.plist")" = "$IOS_WIDGET_BUNDLE_ID"

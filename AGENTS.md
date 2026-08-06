@@ -12,7 +12,8 @@
   deploy key and builds its iPhone, Watch, and widget targets on a public macOS
   runner.
 - `.github/workflows/testflight.yml` checks out an exact private commit, validates
-  the App Store profile, archives it, and uploads it to App Store Connect.
+  all four App Store profiles including the main app's CloudKit entitlements,
+  archives them, and uploads the result to App Store Connect.
 - This repository never owns application source, signing assets, or personal
   content.
 
@@ -23,6 +24,7 @@
 - Pin actions and build only an explicit private source ref.
 - Do not upload source, DerivedData, archives, or app artifacts publicly.
 - Suppress raw compiler, archive, and export diagnostics in public logs.
+- Keep `iCloud.pw.kian.meg` in variables only; never store CloudKit data here.
 
 ## Definition of done
 
